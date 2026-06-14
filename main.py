@@ -1,407 +1,252 @@
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+
+# Smart Alarm Clock Pro V3.0
+# Install: pip install customtkinter pygame plyer
+
+import customtkinter as ctk
+from tkinter import messagebox, filedialog
 from datetime import datetime, timedelta
-import threading
-import time
-import pygame
-import os
+from plyer import notification
+import pygame, threading, json, os, time
 
-# ---------------- COLORS ---------------- #
+DATA_FILE = "alarms_v3.json"
 
-BG = "#1E1E2E"
-CARD = "#313244"
-TEXT = "#FFFFFF"
-ACCENT = "#89B4FA"
-SUCCESS = "#A6E3A1"
-
-# ---------------- AUDIO ---------------- #
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
 pygame.mixer.init()
 
-# ---------------- WINDOW ---------------- #
+class AlarmApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Smart Alarm Clock Pro V3")
+        self.root.geometry("1280x800")
 
-root = tk.Tk()
-root.title("Smart Alarm Clock")
-root.geometry("750x650")
-root.resizable(False, False)
-root.configure(bg=BG)
+        self.alarms = []
+        self.tone = ""
+        self.ringing = False
+        self.status_text = ctk.StringVar(value="🟢 Ready")
 
-# ---------------- VARIABLES ---------------- #
+        self.build_ui()
+        self.load_data()
 
-alarm_time = ""
-alarm_tone = ""
-alarm_active = False
-alarm_triggered = False
+        threading.Thread(target=self.monitor_alarms, daemon=True).start()
+        self.update_ui()
 
-# ---------------- TITLE ---------------- #
+    def build_ui(self):
+        self.hero = ctk.CTkFrame(self.root, corner_radius=20)
+        self.hero.pack(fill="x", padx=20, pady=15)
 
-title = tk.Label(
-    root,
-    text="⏰ Smart Alarm Clock",
-    font=("Segoe UI", 24, "bold"),
-    bg=BG,
-    fg=ACCENT
-)
-title.pack(pady=15)
+        self.clock = ctk.CTkLabel(self.hero, text="00:00:00",
+                                  font=("Consolas", 64, "bold"))
+        self.clock.pack(pady=(20,5))
 
-# ---------------- DIGITAL CLOCK ---------------- #
+        self.date_lbl = ctk.CTkLabel(self.hero, text="")
+        self.date_lbl.pack()
 
-clock_label = tk.Label(
-    root,
-    text="00:00:00",
-    font=("Consolas", 36, "bold"),
-    bg=BG,
-    fg=TEXT
-)
-clock_label.pack(pady=10)
+        self.countdown_lbl = ctk.CTkLabel(self.hero, text="No alarms scheduled",
+                                          font=("Segoe UI",18,"bold"))
+        self.countdown_lbl.pack(pady=15)
 
-# ---------------- CARD ---------------- #
+        body = ctk.CTkFrame(self.root)
+        body.pack(fill="both", expand=True, padx=20, pady=10)
 
-card = tk.Frame(
-    root,
-    bg=CARD,
-    padx=20,
-    pady=20
-)
-card.pack(pady=15)
+        left = ctk.CTkFrame(body)
+        left.pack(side="left", fill="y", padx=10, pady=10)
 
-# ---------------- TIME VARIABLES ---------------- #
+        ctk.CTkLabel(left, text="Add Alarm",
+                     font=("Segoe UI",20,"bold")).pack(pady=10)
 
-hour_var = tk.StringVar(value="00")
-minute_var = tk.StringVar(value="00")
-second_var = tk.StringVar(value="00")
+        self.label_entry = ctk.CTkEntry(left, placeholder_text="Alarm Label")
+        self.label_entry.pack(fill="x", padx=15, pady=5)
 
-hours = [f"{i:02}" for i in range(24)]
-minutes = [f"{i:02}" for i in range(60)]
-seconds = [f"{i:02}" for i in range(60)]
+        tf = ctk.CTkFrame(left)
+        tf.pack(pady=10)
 
-# ---------------- TIME SELECTOR ---------------- #
+        self.h = ctk.CTkComboBox(tf, values=[f"{i:02}" for i in range(24)], width=70)
+        self.m = ctk.CTkComboBox(tf, values=[f"{i:02}" for i in range(60)], width=70)
+        self.s = ctk.CTkComboBox(tf, values=[f"{i:02}" for i in range(60)], width=70)
 
-tk.Label(
-    card,
-    text="Hour",
-    bg=CARD,
-    fg=TEXT
-).grid(row=0, column=0, padx=10)
+        for w in [self.h,self.m,self.s]:
+            w.set("00")
+            w.pack(side="left", padx=4)
 
-tk.Label(
-    card,
-    text="Minute",
-    bg=CARD,
-    fg=TEXT
-).grid(row=0, column=1, padx=10)
+        self.snooze_box = ctk.CTkComboBox(left, values=["5","10","15"])
+        self.snooze_box.set("5")
+        self.snooze_box.pack(pady=5)
 
-tk.Label(
-    card,
-    text="Second",
-    bg=CARD,
-    fg=TEXT
-).grid(row=0, column=2, padx=10)
+        ctk.CTkButton(left, text="🎵 Select Tone",
+                      command=self.select_tone).pack(pady=5)
 
-hour_menu = ttk.Combobox(
-    card,
-    textvariable=hour_var,
-    values=hours,
-    width=5,
-    state="readonly"
-)
-hour_menu.grid(row=1, column=0, padx=10, pady=5)
+        self.tone_lbl = ctk.CTkLabel(left, text="No tone selected")
+        self.tone_lbl.pack()
 
-minute_menu = ttk.Combobox(
-    card,
-    textvariable=minute_var,
-    values=minutes,
-    width=5,
-    state="readonly"
-)
-minute_menu.grid(row=1, column=1, padx=10, pady=5)
+        ctk.CTkButton(left, text="➕ Add Alarm",
+                      command=self.add_alarm).pack(pady=10)
 
-second_menu = ttk.Combobox(
-    card,
-    textvariable=second_var,
-    values=seconds,
-    width=5,
-    state="readonly"
-)
-second_menu.grid(row=1, column=2, padx=10, pady=5)
+        ctk.CTkLabel(left, text="Volume").pack()
+        self.vol = ctk.CTkSlider(left, from_=0, to=100,
+                                 command=lambda v: pygame.mixer.music.set_volume(float(v)/100))
+        self.vol.set(70)
+        self.vol.pack(fill="x", padx=10)
 
-# ---------------- TONE SELECTION ---------------- #
+        self.status = ctk.CTkLabel(left, textvariable=self.status_text,
+                                   font=("Segoe UI",16,"bold"))
+        self.status.pack(pady=15)
 
-def select_tone():
-    global alarm_tone
+        right = ctk.CTkFrame(body)
+        right.pack(side="right", fill="both", expand=True, padx=10)
 
-    file_path = filedialog.askopenfilename(
-        title="Select Alarm Tone",
-        filetypes=[
-            ("Audio Files", "*.mp3 *.wav"),
-            ("All Files", "*.*")
-        ]
-    )
+        ctk.CTkLabel(right, text="Active Alarms",
+                     font=("Segoe UI",20,"bold")).pack(pady=10)
 
-    if file_path:
-        alarm_tone = file_path
+        self.alarm_area = ctk.CTkScrollableFrame(right)
+        self.alarm_area.pack(fill="both", expand=True, padx=10, pady=10)
 
-        tone_label.config(
-            text=f"Selected: {os.path.basename(file_path)}"
+        controls = ctk.CTkFrame(right)
+        controls.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkButton(controls, text="🔕 Snooze",
+                      command=self.snooze_alarm).pack(side="left", padx=5)
+
+        ctk.CTkButton(controls, text="⏹ Stop Alarm",
+                      fg_color="#dc2626",
+                      hover_color="#b91c1c",
+                      command=self.stop_alarm).pack(side="left", padx=5)
+
+        ctk.CTkButton(controls, text="🌙 Toggle Theme",
+                      command=self.toggle_theme).pack(side="left", padx=5)
+
+        ctk.CTkButton(controls, text="🗑 Clear All",
+                      command=self.clear_all).pack(side="left", padx=5)
+
+    def select_tone(self):
+        path = filedialog.askopenfilename(filetypes=[("Audio","*.mp3 *.wav")])
+        if path:
+            self.tone = path
+            self.tone_lbl.configure(text=os.path.basename(path))
+
+    def add_alarm(self):
+        alarm = {
+            "label": self.label_entry.get() or "Alarm",
+            "time": f"{self.h.get()}:{self.m.get()}:{self.s.get()}"
+        }
+        self.alarms.append(alarm)
+        self.save_data()
+        self.render_alarms()
+
+    def render_alarms(self):
+        for w in self.alarm_area.winfo_children():
+            w.destroy()
+
+        if not self.alarms:
+            ctk.CTkLabel(
+                self.alarm_area,
+                text="No alarms scheduled\n\nCreate your first alarm."
+            ).pack(pady=50)
+            return
+
+        for idx, alarm in enumerate(self.alarms):
+            card = ctk.CTkFrame(self.alarm_area, corner_radius=15)
+            card.pack(fill="x", padx=8, pady=8)
+
+            ctk.CTkLabel(card,
+                         text=f"🟢 {alarm['label']}",
+                         font=("Segoe UI",16,"bold")).pack(anchor="w", padx=10, pady=(8,2))
+
+            ctk.CTkLabel(card, text=alarm["time"]).pack(anchor="w", padx=10)
+
+            ctk.CTkButton(card, text="Delete",
+                          width=90,
+                          command=lambda i=idx:self.delete_alarm(i)).pack(anchor="e", padx=10, pady=8)
+
+    def delete_alarm(self, idx):
+        self.alarms.pop(idx)
+        self.save_data()
+        self.render_alarms()
+
+    def monitor_alarms(self):
+        while True:
+            now = datetime.now().strftime("%H:%M:%S")
+            for alarm in self.alarms[:]:
+                if alarm["time"] == now:
+                    self.trigger_alarm(alarm)
+            time.sleep(1)
+
+    def trigger_alarm(self, alarm):
+        self.ringing = True
+        self.status_text.set("🔔 Alarm Ringing")
+
+        try:
+            if self.tone:
+                pygame.mixer.music.load(self.tone)
+                pygame.mixer.music.play(-1)
+        except:
+            pass
+
+        notification.notify(
+            title="Alarm Time Reached",
+            message=alarm["label"],
+            timeout=5
         )
 
-# ---------------- VOLUME ---------------- #
+        if alarm in self.alarms:
+            self.alarms.remove(alarm)
+            self.save_data()
+            self.render_alarms()
 
-def set_volume(value):
-    pygame.mixer.music.set_volume(float(value) / 100)
+    def stop_alarm(self):
+        pygame.mixer.music.stop()
+        self.ringing = False
+        self.status_text.set("🟢 Ready")
 
-# ---------------- ALARM CHECKER ---------------- #
+    def snooze_alarm(self):
+        if not self.ringing:
+            messagebox.showinfo("Snooze","No alarm is ringing.")
+            return
 
-def check_alarm():
-    global alarm_active
-    global alarm_triggered
+        mins = int(self.snooze_box.get())
+        t = (datetime.now()+timedelta(minutes=mins)).strftime("%H:%M:%S")
 
-    while alarm_active:
+        self.alarms.append({"label":"Snoozed Alarm","time":t})
+        self.stop_alarm()
+        self.save_data()
+        self.render_alarms()
 
-        current_time = datetime.now().strftime("%H:%M:%S")
+    def clear_all(self):
+        self.alarms.clear()
+        self.save_data()
+        self.render_alarms()
 
-        if current_time == alarm_time:
+    def toggle_theme(self):
+        mode = ctk.get_appearance_mode()
+        ctk.set_appearance_mode("light" if mode == "Dark" else "dark")
 
-            alarm_triggered = True
+    def update_ui(self):
+        now = datetime.now()
+        self.clock.configure(text=now.strftime("%H:%M:%S"))
+        self.date_lbl.configure(text=now.strftime("%A, %d %B %Y"))
 
-            status_label.config(
-                text="🔔 ALARM RINGING!"
-            )
+        if self.alarms:
+            nxt = sorted(self.alarms, key=lambda a: a["time"])[0]
+            self.countdown_lbl.configure(text=f"Next Alarm: {nxt['label']} • {nxt['time']}")
+        else:
+            self.countdown_lbl.configure(text="No alarms scheduled")
 
-            if alarm_tone:
-                try:
-                    pygame.mixer.music.load(alarm_tone)
-                    pygame.mixer.music.play(-1)
-                except Exception as e:
-                    messagebox.showerror(
-                        "Audio Error",
-                        str(e)
-                    )
+        self.root.after(1000, self.update_ui)
 
-            alarm_active = False
-            break
+    def save_data(self):
+        with open(DATA_FILE,"w") as f:
+            json.dump(self.alarms,f)
 
-        time.sleep(1)
+    def load_data(self):
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE,"r") as f:
+                    self.alarms = json.load(f)
+            except:
+                self.alarms = []
+        self.render_alarms()
 
-# ---------------- SET ALARM ---------------- #
-
-def set_alarm():
-    global alarm_time
-    global alarm_active
-    global alarm_triggered
-
-    if not alarm_tone:
-        messagebox.showerror(
-            "Error",
-            "Please select an alarm tone."
-        )
-        return
-
-    alarm_triggered = False
-
-    alarm_time = (
-        f"{hour_var.get()}:"
-        f"{minute_var.get()}:"
-        f"{second_var.get()}"
-    )
-
-    current_alarm_label.config(
-        text=f"Current Alarm: {alarm_time}"
-    )
-
-    alarm_active = True
-
-    status_label.config(
-        text=f"Alarm Set For: {alarm_time}"
-    )
-
-    threading.Thread(
-        target=check_alarm,
-        daemon=True
-    ).start()
-
-# ---------------- STOP ---------------- #
-
-def stop_alarm():
-    global alarm_active
-    global alarm_triggered
-
-    pygame.mixer.music.stop()
-
-    alarm_active = False
-    alarm_triggered = False
-
-    status_label.config(
-        text="Alarm Stopped"
-    )
-
-# ---------------- SNOOZE ---------------- #
-
-def snooze_alarm():
-    global alarm_time
-    global alarm_active
-    global alarm_triggered
-
-    if not alarm_triggered:
-        messagebox.showinfo(
-            "Snooze",
-            "No alarm is currently ringing."
-        )
-        return
-
-    pygame.mixer.music.stop()
-
-    new_time = datetime.now() + timedelta(minutes=5)
-
-    alarm_time = new_time.strftime("%H:%M:%S")
-
-    current_alarm_label.config(
-        text=f"Current Alarm: {alarm_time}"
-    )
-
-    alarm_active = True
-    alarm_triggered = False
-
-    status_label.config(
-        text=f"Snoozed Until: {alarm_time}"
-    )
-
-    threading.Thread(
-        target=check_alarm,
-        daemon=True
-    ).start()
-
-# ---------------- RESET ---------------- #
-
-def reset_alarm():
-    global alarm_time
-    global alarm_active
-    global alarm_triggered
-
-    pygame.mixer.music.stop()
-
-    alarm_time = ""
-    alarm_active = False
-    alarm_triggered = False
-
-    current_alarm_label.config(
-        text="Current Alarm: None"
-    )
-
-    status_label.config(
-        text="Alarm Reset"
-    )
-
-# ---------------- TONE BUTTON ---------------- #
-
-tone_button = tk.Button(
-    card,
-    text="🎵 Select Alarm Tone",
-    command=select_tone,
-    font=("Segoe UI", 11)
-)
-tone_button.grid(row=2, column=0, columnspan=3, pady=15)
-
-tone_label = tk.Label(
-    card,
-    text="No Tone Selected",
-    bg=CARD,
-    fg=TEXT
-)
-tone_label.grid(row=3, column=0, columnspan=3)
-
-# ---------------- ALARM LABEL ---------------- #
-
-current_alarm_label = tk.Label(
-    root,
-    text="Current Alarm: None",
-    bg=BG,
-    fg=TEXT,
-    font=("Segoe UI", 11)
-)
-current_alarm_label.pack(pady=5)
-
-# ---------------- BUTTONS ---------------- #
-
-button_frame = tk.Frame(root, bg=BG)
-button_frame.pack(pady=15)
-
-set_btn = tk.Button(
-    button_frame,
-    text="Set Alarm",
-    width=12,
-    command=set_alarm
-)
-set_btn.grid(row=0, column=0, padx=5)
-
-snooze_btn = tk.Button(
-    button_frame,
-    text="Snooze",
-    width=12,
-    command=snooze_alarm
-)
-snooze_btn.grid(row=0, column=1, padx=5)
-
-stop_btn = tk.Button(
-    button_frame,
-    text="Stop",
-    width=12,
-    command=stop_alarm
-)
-stop_btn.grid(row=0, column=2, padx=5)
-
-reset_btn = tk.Button(
-    button_frame,
-    text="Reset",
-    width=12,
-    command=reset_alarm
-)
-reset_btn.grid(row=0, column=3, padx=5)
-
-# ---------------- VOLUME ---------------- #
-
-volume_label = tk.Label(
-    root,
-    text="Volume",
-    bg=BG,
-    fg=TEXT
-)
-volume_label.pack()
-
-volume_slider = tk.Scale(
-    root,
-    from_=0,
-    to=100,
-    orient="horizontal",
-    command=set_volume,
-    bg=BG,
-    fg=TEXT,
-    highlightthickness=0
-)
-
-volume_slider.set(70)
-volume_slider.pack()
-
-# ---------------- STATUS ---------------- #
-
-status_label = tk.Label(
-    root,
-    text="No Alarm Set",
-    bg=BG,
-    fg=SUCCESS,
-    font=("Segoe UI", 12, "bold")
-)
-status_label.pack(pady=15)
-
-# ---------------- LIVE CLOCK ---------------- #
-
-def update_clock():
-    current_time = datetime.now().strftime("%H:%M:%S")
-    clock_label.config(text=current_time)
-    root.after(1000, update_clock)
-
-update_clock()
-
-# ---------------- RUN ---------------- #
-
+root = ctk.CTk()
+app = AlarmApp(root)
 root.mainloop()
