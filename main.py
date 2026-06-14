@@ -4,18 +4,12 @@ from datetime import datetime
 import threading
 import time
 
-# ---------------- WINDOW ---------------- #
-
 root = tk.Tk()
 root.title("Smart Alarm Clock")
 root.geometry("600x500")
 
-# ---------------- GLOBAL VARIABLES ---------------- #
-
 alarm_time = ""
 alarm_active = False
-
-# ---------------- TITLE ---------------- #
 
 title = tk.Label(
     root,
@@ -24,8 +18,6 @@ title = tk.Label(
 )
 title.pack(pady=20)
 
-# ---------------- DIGITAL CLOCK ---------------- #
-
 clock_label = tk.Label(
     root,
     text="00:00:00",
@@ -33,19 +25,13 @@ clock_label = tk.Label(
 )
 clock_label.pack(pady=20)
 
-# ---------------- ALARM VARIABLES ---------------- #
-
 hour_var = tk.StringVar(value="00")
 minute_var = tk.StringVar(value="00")
 second_var = tk.StringVar(value="00")
 
-# ---------------- TIME LISTS ---------------- #
-
 hours = [f"{i:02}" for i in range(24)]
 minutes = [f"{i:02}" for i in range(60)]
 seconds = [f"{i:02}" for i in range(60)]
-
-# ---------------- TIME FRAME ---------------- #
 
 time_frame = tk.Frame(root)
 time_frame.pack(pady=20)
@@ -92,8 +78,6 @@ second_menu = ttk.Combobox(
 )
 second_menu.grid(row=1, column=2, padx=10)
 
-# ---------------- ALARM CHECKER ---------------- #
-
 def check_alarm():
     global alarm_active
 
@@ -111,8 +95,6 @@ def check_alarm():
             break
 
         time.sleep(1)
-
-# ---------------- SET ALARM ---------------- #
 
 def set_alarm():
     global alarm_time
@@ -135,8 +117,6 @@ def set_alarm():
         daemon=True
     ).start()
 
-# ---------------- BUTTON ---------------- #
-
 set_button = tk.Button(
     root,
     text="Set Alarm",
@@ -144,8 +124,6 @@ set_button = tk.Button(
     command=set_alarm
 )
 set_button.pack(pady=15)
-
-# ---------------- STATUS ---------------- #
 
 status_label = tk.Label(
     root,
@@ -155,8 +133,6 @@ status_label = tk.Label(
 )
 status_label.pack()
 
-# ---------------- CLOCK ---------------- #
-
 def update_clock():
     current_time = datetime.now().strftime("%H:%M:%S")
 
@@ -165,7 +141,5 @@ def update_clock():
     root.after(1000, update_clock)
 
 update_clock()
-
-# ---------------- RUN APP ---------------- #
 
 root.mainloop()
